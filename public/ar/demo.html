@@ -1,102 +1,208 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Moving Polaroid AR</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#171a1e">
+<title>Moving Polaroid — Camera</title>
 <style>
-*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#191d21;color:white;font-family:system-ui,Arial,sans-serif}
-#viewport{position:absolute;inset:0;overflow:hidden}#viewport canvas,#viewport video{max-width:none}
-#panel{position:absolute;inset:0;display:flex;z-index:3;justify-content:center;align-items:center;flex-direction:column;text-align:center;padding:20px;background:linear-gradient(135deg,#21202cf2,#362a2ef2)}
-h1{font:500 clamp(28px,6vw,40px)/1.12 Georgia,serif;margin:8px 0 10px}
-p{max-width:360px;line-height:1.5;font-size:14px;color:#e1d5d0}
-button{border:0;border-radius:8px;padding:12px 18px;background:#f8eee5;color:#382c2c;font:600 14px system-ui;cursor:pointer}
-button:focus-visible,a:focus-visible{outline:3px solid #edd0bb;outline-offset:3px}
-button:disabled{opacity:.55}
-#status{position:absolute;top:14px;left:50%;transform:translateX(-50%);z-index:4;max-width:96%;padding:10px 16px;border-radius:30px;background:#28232bd9;text-align:center;font-size:12px}
-#controls{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);z-index:5;display:flex;gap:10px}
-#controls button{font-size:12px;white-space:nowrap;padding:10px}
-#error{position:absolute;bottom:64px;left:12px;right:12px;z-index:6;text-align:center;padding:12px;background:#812d36ed;border-radius:8px;font-size:12px}
-.hidden{display:none!important}#source{display:none}.sub{font-size:12px}.sub a{color:white}
+  *{box-sizing:border-box}
+  html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#171a1e;color:#fff;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+  #viewport{position:absolute;inset:0;overflow:hidden;z-index:1}
+  #viewport video,#viewport canvas{max-width:none}
+  #preview{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#171a1e;z-index:0}
+  #panel{position:absolute;inset:0;z-index:6;display:flex;justify-content:center;align-items:center;flex-direction:column;text-align:center;padding:24px;background:linear-gradient(145deg,#221f29f4,#35282ef5)}
+  #panel .spark{font-size:48px;color:#ecc4aa}
+  h1{font:500 clamp(27px,6vw,44px)/1.15 Georgia,serif;margin:12px 0}
+  p{max-width:380px;color:#e3d9d3;font-size:14px;line-height:1.65}
+  button,.link{border:0;border-radius:9px;padding:13px 19px;min-height:44px;background:#f9f0e6;color:#292324;font:600 14px system-ui;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;text-decoration:none}
+  button:disabled{opacity:.6;cursor:wait}
+  button:focus-visible,.link:focus-visible{outline:3px solid #fff;outline-offset:3px}
+  .alt{background:#343035d9;color:white;border:1px solid #a29595}
+  #status{position:absolute;top:max(16px,env(safe-area-inset-top));left:50%;transform:translateX(-50%);z-index:8;max-width:calc(100% - 28px);padding:10px 14px;border-radius:28px;background:#2d2930df;text-align:center;font-size:13px;line-height:1.4;pointer-events:none}
+  #status.found{background:#176e56ec}
+  #controls{position:absolute;z-index:9;bottom:max(16px,env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);display:flex;align-items:center;justify-content:center;gap:8px;width:calc(100% - 18px);flex-wrap:wrap}
+  #controls button,#controls a{font-size:12px;padding:10px 12px;min-height:42px}
+  #error{position:absolute;z-index:10;bottom:90px;left:12px;right:12px;padding:13px;border-radius:9px;color:#fff;background:#9f292dea;text-align:center;font-size:13px;line-height:1.5}
+  #videoSource{display:none}
+  .hidden{display:none!important}
+  .help{font-size:12px;color:#d4c9c4;margin-top:18px}
+  .help a{color:white;text-underline-offset:3px}
+  @media(max-width:480px){#controls{gap:6px}#controls button,#controls a{font-size:11px;padding:10px}}
 </style>
 <script type="importmap">
-{"imports":{
-  "three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-  "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
-  "mindar-image-three":"https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js"
-}}
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+    "mindar-image-three": "https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js"
+  }
+}
 </script>
 </head>
 <body>
-<div id="viewport"></div>
-<div id="panel"><div style="font-size:45px;color:#e3bba6">✦</div><h1>Make the photo move.</h1>
-<p>Tap below, allow camera access, then aim at the printed demo picture.</p>
-<button id="start" type="button">Start AR camera</button>
-<p class="sub">No camera? <a href="https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4" target="_blank" rel="noopener noreferrer">Watch the video</a></p>
+<video id="preview" class="hidden" muted playsinline autoplay aria-label="Live camera preview"></video>
+<div id="viewport" aria-label="Augmented-reality camera view"></div>
+<div id="panel">
+  <div class="spark" aria-hidden="true">✦</div>
+  <h1>Point your phone at the photo</h1>
+  <p>This opens your phone's camera in the browser. Aim at the printed sample picture to make it move.</p>
+  <button type="button" id="start">Open camera</button>
+  <p class="help">Please allow camera permission. Best opened directly in Chrome or Safari, not inside an in-app browser.</p>
+  <p class="help"><a href="/print/demo">See the printable test picture</a></p>
 </div>
-<div id="status" class="hidden" role="status">Loading…</div>
-<div id="controls" class="hidden"><button id="sound" type="button">Enable sound</button><button id="stop" type="button">Stop camera</button></div>
+<div id="status" class="hidden" role="status"></div>
+<div id="controls" class="hidden">
+  <button type="button" id="sound" class="alt">Enable sound</button>
+  <button type="button" id="retry" class="alt">Retry AR</button>
+  <button type="button" id="stop" class="alt">Close camera</button>
+  <a class="link" href="/print/demo">Test picture</a>
+</div>
 <div id="error" class="hidden" role="alert"></div>
-<video id="source" playsinline muted loop preload="auto" crossorigin="anonymous" src="https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4"></video>
+<video id="videoSource" crossorigin="anonymous" muted playsinline preload="auto" loop
+  src="https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4"></video>
+
 <script type="module">
-const viewport=document.getElementById("viewport");
-const panel=document.getElementById("panel");
-const startBtn=document.getElementById("start");
-const stopBtn=document.getElementById("stop");
-const soundBtn=document.getElementById("sound");
-const status=document.getElementById("status");
-const controls=document.getElementById("controls");
-const errorBox=document.getElementById("error");
-const video=document.getElementById("source");
-const targetUrl="https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.2.5/examples/image-tracking/assets/card-example/card.mind";
-let ar=null,texture=null,geometry=null,material=null,busy=false,seq=0;
-function message(text,found=false){status.textContent=text;status.classList.remove("hidden");status.style.background=found?"#205c4fdd":"#28232bdd";}
-function showError(text){errorBox.textContent=text;errorBox.classList.remove("hidden");}
-function stop(){
- seq++;busy=false;video.pause();
- if(ar){try{ar.renderer.setAnimationLoop(null);ar.stop();ar.renderer.dispose();}catch(e){console.warn(e)}ar=null;}
- texture?.dispose();geometry?.dispose();material?.dispose();
- texture=null;geometry=null;material=null;
- viewport.innerHTML="";video.muted=true;soundBtn.textContent="Enable sound";
- panel.classList.remove("hidden");startBtn.disabled=false;
- status.classList.add("hidden");controls.classList.add("hidden");
+const $=id=>document.getElementById(id);
+const preview=$("preview"), viewport=$("viewport"), panel=$("panel");
+const status=$("status"), controls=$("controls"), errorBox=$("error");
+const startBtn=$("start"), stopBtn=$("stop"), retryBtn=$("retry"), soundBtn=$("sound");
+const video=$("videoSource");
+const target="https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.2.5/examples/image-tracking/assets/card-example/card.mind";
+
+let stream=null, ar=null, texture=null, geometry=null, material=null;
+let session=0, starting=false, tracking=false, found=false;
+const say=(message,success=false)=>{
+  status.textContent=message;
+  status.classList.remove("hidden");
+  status.classList.toggle("found",success);
+};
+const showError=message=>{
+  errorBox.textContent=message;
+  errorBox.classList.remove("hidden");
+  console.error("AR viewer:",message);
+};
+const clearError=()=>errorBox.classList.add("hidden");
+
+function stopPreview(){
+  if(stream){stream.getTracks().forEach(t=>t.stop());stream=null;}
+  preview.pause();
+  preview.srcObject=null;
+  preview.classList.add("hidden");
 }
-startBtn.addEventListener("click",async()=>{
- if(busy||ar)return;busy=true;const current=++seq;
- errorBox.classList.add("hidden");startBtn.disabled=true;
- message("Loading AR engine…");
- try{
-  const [THREE,{MindARThree}]=await Promise.all([import("three"),import("mindar-image-three")]);
-  if(current!==seq)return;
-  ar=new MindARThree({container:viewport,imageTargetSrc:targetUrl,maxTrack:1});
-  const {renderer,scene,camera}=ar;
-  const anchor=ar.addAnchor(0);
-  video.muted=true;
-  texture=new THREE.VideoTexture(video);texture.colorSpace=THREE.SRGBColorSpace;
-  geometry=new THREE.PlaneGeometry(1,0.552);
-  material=new THREE.MeshBasicMaterial({map:texture,side:THREE.DoubleSide,toneMapped:false});
-  const plane=new THREE.Mesh(geometry,material);plane.position.z=0.01;anchor.group.add(plane);
-  anchor.onTargetFound=()=>{
-   if(current!==seq)return;
-   message("✦ Picture recognized · video playing",true);
-   video.play().catch(()=>showError("Video playback blocked. Try scanning again."));
-  };
-  anchor.onTargetLost=()=>{if(current!==seq)return;video.pause();message("Point at the printed photo");};
-  message("Starting camera…");
-  await ar.start();
-  if(current!==seq)return;
-  busy=false;panel.classList.add("hidden");
-  controls.classList.remove("hidden");message("Point at the printed photo");
-  renderer.setAnimationLoop(()=>renderer.render(scene,camera));
- }catch(e){
-  console.error(e);
-  stop();
-  showError("Could not start camera. Use HTTPS, grant camera access, and check your internet connection.");
- }
+function stopAR(){
+  if(ar){
+    try{ar.renderer.setAnimationLoop(null);ar.stop();ar.renderer.dispose();}catch(e){console.warn("AR shutdown:",e);}
+    ar=null;
+  }
+  texture?.dispose(); geometry?.dispose(); material?.dispose();
+  texture=null;geometry=null;material=null;
+  viewport.replaceChildren();
+  video.pause();tracking=false;found=false;
+}
+function stopEverything(){
+  session++;starting=false;
+  stopAR();stopPreview();clearError();
+  panel.classList.remove("hidden");
+  controls.classList.add("hidden");status.classList.add("hidden");
+  startBtn.disabled=false;
+  video.muted=true;soundBtn.textContent="Enable sound";
+}
+
+async function showPreview(current){
+  if(!window.isSecureContext || !navigator.mediaDevices?.getUserMedia){
+    throw new Error("Camera unavailable: open this HTTPS page in Chrome or Safari.");
+  }
+  say("Requesting camera permission…");
+  const nextStream=await navigator.mediaDevices.getUserMedia({
+    audio:false,
+    video:{facingMode:{ideal:"environment"}}
+  });
+  if(current!==session){nextStream.getTracks().forEach(t=>t.stop());return;}
+  stream=nextStream;
+  preview.srcObject=stream;
+  preview.classList.remove("hidden");
+  try { await preview.play(); } catch (e) { console.warn("Camera preview playback:",e); }
+  panel.classList.add("hidden");controls.classList.remove("hidden");
+  say("Camera ready. Loading the moving-photo effect…");
+}
+
+async function launch(){
+  if(starting)return;
+  starting=true;
+  const current=++session;
+  startBtn.disabled=true;
+  clearError();
+  try{
+    // Ask for permission directly in this top-level page, while the user gesture is fresh.
+    await showPreview(current);
+    if(current!==session)return;
+    const [THREE,{MindARThree}]=await Promise.all([import("three"),import("mindar-image-three")]);
+    if(current!==session)return;
+    if(typeof MindARThree!=="function")throw new Error("The AR library could not be loaded.");
+
+    // Release camera preview before MindAR acquires the same physical camera.
+    stopPreview();
+    say("Initializing image tracking…");
+    ar=new MindARThree({container:viewport,imageTargetSrc:target,maxTrack:1});
+    const {renderer,scene,camera}=ar;
+    const anchor=ar.addAnchor(0);
+    texture=new THREE.VideoTexture(video);
+    texture.colorSpace=THREE.SRGBColorSpace;
+    geometry=new THREE.PlaneGeometry(1,0.552);
+    material=new THREE.MeshBasicMaterial({map:texture,side:THREE.DoubleSide,toneMapped:false});
+    const plane=new THREE.Mesh(geometry,material);
+    plane.position.z=0.01;
+    anchor.group.add(plane);
+
+    anchor.onTargetFound=()=>{
+      if(current!==session)return;
+      found=true;
+      say("Photo recognized — playing video",true);
+      void video.play().catch(()=>showError("Video is blocked. Tap Enable sound, then try again."));
+    };
+    anchor.onTargetLost=()=>{
+      if(current!==session)return;
+      found=false;video.pause();say("Aim at the printed demo image");
+    };
+    await ar.start();
+    if(current!==session){stopAR();return;}
+    tracking=true;
+    say(found?"Photo recognized — playing video":"Camera on. Aim at the printed demo image.",found);
+    renderer.setAnimationLoop(()=>renderer.render(scene,camera));
+  }catch(e){
+    if(current!==session)return;
+    const message=e instanceof Error?e.message:String(e);
+    console.error("Failed to start AR:",e);
+    stopAR();
+    // Keep the camera usable if only the AR module or target fails.
+    if(!stream){
+      try{await showPreview(current);}catch(previewError){
+        console.warn("Camera fallback unavailable:",previewError);
+      }
+    }
+    if(current!==session)return;
+    showError(stream
+      ? "Camera is working, but AR tracking failed: "+message+" Tap Retry AR."
+      : "Unable to open your camera: "+message+" Check browser permissions and use Chrome or Safari.");
+    if(!stream){panel.classList.remove("hidden");status.classList.add("hidden");}
+  }finally{
+    if(current===session){starting=false;startBtn.disabled=false;}
+  }
+}
+startBtn.addEventListener("click",launch);
+retryBtn.addEventListener("click",async()=>{
+  if(starting)return;
+  stopAR();stopPreview();clearError();
+  await launch();
 });
-soundBtn.addEventListener("click",()=>{video.muted=!video.muted;soundBtn.textContent=video.muted?"Enable sound":"Mute";});
-stopBtn.addEventListener("click",stop);
-window.addEventListener("pagehide",stop);
+soundBtn.addEventListener("click",()=>{
+  video.muted=!video.muted;
+  soundBtn.textContent=video.muted?"Enable sound":"Mute";
+  if(tracking&&found&&video.paused)void video.play().catch(e=>showError(String(e)));
+});
+stopBtn.addEventListener("click",stopEverything);
+window.addEventListener("pagehide",stopEverything);
 </script>
 </body>
 </html>
