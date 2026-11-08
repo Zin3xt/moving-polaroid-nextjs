@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Print Your Polaroid — Private Draft</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;padding:28px;font-family:system-ui,-apple-system,Arial,sans-serif;background:#f5eee6;color:#342f2b}
+  .tools{max-width:720px;margin:auto}
+  h1{font:600 36px Georgia,serif;margin:15px 0}
+  p{line-height:1.65}
+  .hint{font-size:13px;color:#706763}
+  button,a{display:inline-block;margin:8px 8px 10px 0;border:1px solid #a99788;border-radius:8px;padding:11px 17px;background:#fff;color:#342f2b;text-decoration:none;cursor:pointer;font:600 14px system-ui}
+  .paper{max-width:720px;margin:22px auto;min-height:440px;display:grid;place-items:center;padding:36px;background:#e6ddd2}
+  .polaroid{width:min(380px,100%);padding:15px 15px 25px;background:white;box-shadow:0 12px 40px #2c211c45}
+  .polaroid img{display:block;width:100%;height:auto;object-fit:contain}
+  .polaroidFooter{padding:18px 7px 0;display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .polaroidFooter b{font:italic 19px Georgia,serif}
+  .polaroidFooter small{font-size:11px;color:#726862}
+  .placeholder{width:82px;height:82px;border:2px dashed #ccc;display:grid;place-items:center;text-align:center;font-size:10px;color:#777}
+  .error{color:#a53036}
+  @media print{
+    @page{margin:8mm}
+    body{margin:0;padding:0;background:white}
+    .tools{display:none}
+    .paper{margin:0;max-width:none;background:white;padding:0;min-height:0}
+    .polaroid{width:90mm;box-shadow:none;border:1px solid #ccc;break-inside:avoid}
+  }
+</style>
+</head>
+<body>
+<div class="tools">
+  <h1>Print your Polaroid</h1>
+  <p class="hint">Private draft preview. The QR space is reserved until this photo and its AR media have been published. Do not scan this as a shared memory yet.</p>
+  <button type="button" onclick="window.print()">Print</button>
+  <a href="/studio">Back to Studio</a>
+  <p id="message" class="hint">Loading your local photo…</p>
+</div>
+<div class="paper">
+  <div class="polaroid">
+    <img id="photo" alt="Photo to print">
+    <div class="polaroidFooter">
+      <div><b id="caption">a moving memory ♡</b><div><small>moving polaroid</small></div></div>
+      <div class="placeholder">QR code<br>after<br>publish</div>
+    </div>
+  </div>
+</div>
+<script>
+(async()=>{
+  const id=new URLSearchParams(location.search).get("id");
+  const info=document.getElementById("message");
+  if(!id){info.textContent="Missing draft ID.";info.classList.add("error");return;}
+  try{
+    const db=await new Promise((resolve,reject)=>{
+      const req=indexedDB.open("moving-polaroid-studio",1);
+      req.onupgradeneeded=()=>{
+        if(!req.result.objectStoreNames.contains("drafts"))req.result.createObjectStore("drafts",{keyPath:"id"});
+      };
+      req.onsuccess=()=>resolve(req.result);
+      req.onerror=()=>reject(req.error);
+    });
+    const draft=await new Promise((resolve,reject)=>{
+      const tx=db.transaction("drafts","readonly");
+      const req=tx.objectStore("drafts").get(id);
+      req.onsuccess=()=>resolve(req.result||null);
+      req.onerror=()=>reject(req.error);
+    });
+    db.close();
+    if(!draft){info.textContent="Draft not found on this device.";return;}
+    const url=URL.createObjectURL(draft.photo);
+    document.getElementById("photo").src=url;
+    document.getElementById("caption").textContent=draft.caption||draft.title||"a moving memory ♡";
+    info.textContent="Print at actual size. The printed picture must match the tracked photo exactly.";
+    window.addEventListener("pagehide",()=>URL.revokeObjectURL(url));
+  }catch(e){info.textContent="Unable to load draft: "+(e.message||e);info.classList.add("error");}
+})();
+</script>
+</body>
+</html>

@@ -1,38 +1,51 @@
-# Moving Polaroid AR — Next.js Phase 1
+# Moving Polaroid AR — Next.js
 
-Scan the QR code on a printed Polaroid with the normal Android/iPhone camera, open the linked website, grant camera permission, and aim at the image to play an AR video overlay.
+A browser-based AR demo with a local-first Phase 2 Creator Studio.
 
-**Stack:** Next.js App Router, TypeScript, MindAR 1.2.5, Three.js, qrcode.react.
+## Features
 
-## Pages
-- `/` — landing page
-- `/print/demo` — printable sample card and unique-origin QR
-- `/p/demo` — mobile AR viewer
+- Scan demo QR with a normal camera and open the AR site in Chrome/Safari.
+- Print sample card at /print/demo and launch the demo AR camera at /ar/demo.html.
+- Create your own unpublished Polaroid in /studio using a JPG/PNG/WebP photo (max 12 MB) and MP4/WebM video (max 80 MB).
+- Automatically compile a MindAR .mind target in the browser, or import an existing .mind file.
+- Save drafts with image, video, compiled target, title and caption to **browser IndexedDB**.
+- Print the local photo at /studio/print.html?id=... and test it at /ar/local.html?id=... on the **same browser and device**.
+- Export a compiled .mind file from a local draft.
 
-## Run locally
-```bash
-npm install
-npm run dev
-npm run typecheck
-npm run lint
-npm run build
-```
+## Privacy and current limits
 
-## Vercel
-Import GitHub repository, use Next.js preset, Node 22.x, root directory `./`.
-Leave NEXT_PUBLIC_SITE_URL unset unless using a fixed custom HTTPS domain. QR codes default to the current browser origin.
+This version has **NO backend upload endpoint, user login, or public publishing**. Drafts remain on the device where they were created. Browser storage can be cleared and is not backed up. The printable private draft intentionally does **not** contain a scannable QR for cross-device playback. The QR placeholder is reserved for the future publishing stage, when media and the target will live on a secured hosting service.
 
-## Demo media
-The sample tracking target/photo come from the official MindAR demo CDN. The demonstration video is an independently hosted CC0 flower video from MDN. Both sources require network access. This project does NOT yet include a backend, authenticated upload form, or private video storage.
+Do not mistake the private draft URL for a permanent share URL. The compiled target must correspond to the exact printed photo crop. Personal media never gets committed to GitHub or uploaded to Vercel in this phase.
 
-## Your own photo
-Capture a short H.264 MP4 and pick a still. Crop the photo content, excluding the white frame and QR, then compile that exact crop with [MindAR Image Target Compiler](https://hiukim.github.io/mind-ar-js-doc/tools/compile/). Update the catalog in `src/lib/polaroids.ts` with matching image, .mind target and video URL. Ensure targetAspectRatio matches the photo crop.
+## Development
 
-## Testing
-1. Print the image on `/print/demo`.
-2. Scan QR with phone’s normal camera; tap the HTTPS link.
-3. Tap Start AR camera, grant permission and point at printed card.
-4. The video should align with the tracked image.
-5. Test Android Chrome and iPhone Safari. Support depends on browser, camera permissions, lighting and target image quality.
+Use Node 22+:
 
-In Phase 2, add authentication, PostgreSQL/Prisma catalog and safe direct-to-object-storage uploads; never expose private personal media in the public directory.
+    npm install
+    npm run typecheck
+    npm run lint
+    npm run build
+    npm run dev
+
+Open http://localhost:3000/studio on desktop or mobile. For camera testing on a separate phone, use an HTTPS development domain; localhost is only treated as secure on the device itself.
+
+## Browser compiler
+
+The page loads the officially documented MindAR browser compiler bundle from jsDelivr:
+
+    https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image.prod.js
+
+It uses MINDAR.IMAGE.Compiler to compile one image to a .mind file. The viewer uses Three.js + MindAR ES modules via import maps. These external scripts require network access and may be blocked by restrictive networks. If compilation fails, use MindAR's official online compiler and import the generated .mind file into the Creator Studio.
+
+## Phase 2 publishing work not yet complete
+
+To support printing a QR that works on anyone's phone, implement:
+1. Authenticated creator accounts and authorization.
+2. Durable video/image/.mind storage (for example a properly configured Vercel Blob store).
+3. A durable database with records and ownership enforcement.
+4. A publish/revoke flow and unique share IDs.
+5. Validation, storage quotas, privacy rules, and cleanup for abandoned uploads.
+6. Cross-device mobile acceptance testing and camera permission handling.
+
+Automatic GitHub → Vercel preview builds deploy feature branches; production stays on main until intentionally released.

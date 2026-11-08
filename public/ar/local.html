@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#171a1e">
+<title>Moving Polaroid — Local AR Test</title>
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#171a1e;color:#fff;font-family:system-ui,-apple-system,Arial,sans-serif}
+  #viewport{position:absolute;inset:0;overflow:hidden}
+  #viewport video,#viewport canvas{max-width:none}
+  #preview{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#171a1e}
+  #panel{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;text-align:center;padding:25px;background:linear-gradient(140deg,#20232cf5,#3c2e35f5)}
+  h1{font:500 clamp(27px,7vw,42px)/1.15 Georgia,serif;margin:10px 0}
+  p{font-size:14px;line-height:1.6;max-width:360px;color:#e4d7d0}
+  button,a.button{padding:12px 18px;border:0;border-radius:8px;background:#f7ece4;color:#302729;font:600 14px system-ui;text-decoration:none;cursor:pointer}
+  button:disabled{opacity:.6}
+  #status{position:absolute;top:15px;left:50%;transform:translateX(-50%);z-index:3;max-width:95%;padding:12px 18px;border-radius:22px;background:#25212ce9;text-align:center;font-size:13px}
+  #controls{position:absolute;bottom:18px;left:50%;transform:translateX(-50%);z-index:3;display:flex;gap:8px}
+  #controls button{white-space:nowrap;font-size:12px;padding:10px 12px}
+  #error{position:absolute;bottom:80px;left:10px;right:10px;z-index:4;background:#8c3034f0;border-radius:8px;padding:12px;text-align:center;font-size:12px}
+  .hidden{display:none!important}
+  #movie{display:none}
+  .info{font-size:12px}
+</style>
+<script type="importmap">
+{"imports":{
+  "three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+  "mindar-image-three":"https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js"
+}}
+</script>
+</head>
+<body>
+<video id="preview" class="hidden" muted playsinline autoplay></video>
+<div id="viewport"></div>
+<div id="panel">
+  <div aria-hidden="true" style="font-size:48px;color:#e6c3b2">✦</div>
+  <h1>Test your moving photo.</h1>
+  <p id="description">Loading your local draft from this browser…</p>
+  <button id="start" type="button" disabled>Open AR camera</button>
+  <p class="info">No file is uploaded to a server. Test AR works only on the device/browser that saved this draft.</p>
+  <a class="button" href="/studio">Back to Creator Studio</a>
+</div>
+<div id="status" class="hidden" role="status"></div>
+<div id="controls" class="hidden">
+  <button id="sound" type="button">Enable sound</button>
+  <button id="stop" type="button">Stop</button>
+</div>
+<div id="error" class="hidden" role="alert"></div>
+<video id="movie" playsinline muted loop preload="auto"></video>
+<script type="module">
+const id=new URLSearchParams(location.search).get("id");
+const el=name=>document.getElementById(name);
+const panel=el("panel"), startButton=el("start"), description=el("description");
+const viewport=el("viewport"), preview=el("preview"), movie=el("movie");
+const status=el("status"), controls=el("controls"), errorBox=el("error");
+const sound=el("sound");
+let draft=null,videoURL=null,targetURL=null,stream=null,ar=null,texture=null,geometry=null,material=null;
+let runId=0,loading=false,visible=false;
+const msg=(text,recognized=false)=>{
+  status.textContent=text;status.style.background=recognized?"#1a6c57e9":"#25212ce9";status.classList.remove("hidden");
+};
+const fail=text=>{
+  errorBox.textContent=text;errorBox.classList.remove("hidden");
+};
+const clear=()=>errorBox.classList.add("hidden");
+
+function readDraft(draftId){
+  return new Promise((resolve,reject)=>{
+    const request=indexedDB.open("moving-polaroid-studio",1);
+    request.onupgradeneeded=()=>{
+      const db=request.result;
+      if(!db.objectStoreNames.contains("drafts"))db.createObjectStore("drafts",{keyPath:"id"});
+    };
+    request.onerror=()=>reject(request.error||new Error("Cannot open local storage."));
+    request.onsuccess=()=>{
+      const db=request.result;
+      const transaction=db.transaction("drafts","readonly");
+      const query=transaction.objectStore("drafts").get(draftId);
+      query.onsuccess=()=>resolve(query.result||null);
+      query.onerror=()=>reject(query.error||new Error("Cannot open draft."));
+      transaction.oncomplete=()=>db.close();
+    };
+  });
+}
+
+function stopPreview(){
+  if(stream){for(const track of stream.getTracks())track.stop();stream=null;}
+  preview.pause();preview.srcObject=null;preview.classList.add("hidden");
+}
+function stopAR(){
+  if(ar){try{ar.renderer.setAnimationLoop(null);ar.stop();ar.renderer.dispose();}catch(e){console.warn(e);}ar=null;}
+  texture?.dispose();geometry?.dispose();material?.dispose();
+  texture=null;geometry=null;material=null;
+  viewport.replaceChildren();movie.pause();visible=false;
+}
+function reset(){
+  runId++;loading=false;stopAR();stopPreview();clear();
+  panel.classList.remove("hidden");controls.classList.add("hidden");status.classList.add("hidden");
+  startButton.disabled=!draft;movie.muted=true;sound.textContent="Enable sound";
+}
+async function start(){
+  if(loading||ar||!draft)return;
+  loading=true;const current=++runId;clear();startButton.disabled=true;
+  try{
+    if(!isSecureContext||!navigator.mediaDevices?.getUserMedia){
+      throw new Error("Open the HTTPS page in Chrome or Safari to access the camera.");
+    }
+    msg("Requesting camera permission…");
+    const newStream=await navigator.mediaDevices.getUserMedia({
+      audio:false,video:{facingMode:{ideal:"environment"}}
+    });
+    if(current!==runId){newStream.getTracks().forEach(t=>t.stop());return;}
+    stream=newStream;preview.srcObject=stream;preview.classList.remove("hidden");
+    await preview.play().catch(()=>{});
+    panel.classList.add("hidden");controls.classList.remove("hidden");
+    msg("Camera ready. Loading image recognition…");
+
+    const [THREE,{MindARThree}]=await Promise.all([import("three"),import("mindar-image-three")]);
+    if(current!==runId)return;
+    stopPreview();
+    ar=new MindARThree({container:viewport,imageTargetSrc:targetURL,maxTrack:1});
+    const {renderer,scene,camera}=ar;
+    const anchor=ar.addAnchor(0);
+    texture=new THREE.VideoTexture(movie);
+    texture.colorSpace=THREE.SRGBColorSpace;
+    geometry=new THREE.PlaneGeometry(1,1/draft.aspectRatio);
+    material=new THREE.MeshBasicMaterial({map:texture,side:THREE.DoubleSide,toneMapped:false});
+    const plane=new THREE.Mesh(geometry,material);
+    plane.position.z=0.01;anchor.group.add(plane);
+    anchor.onTargetFound=()=>{
+      if(current!==runId)return;
+      visible=true;msg("Photo recognized — video playing",true);
+      movie.play().catch(e=>fail("Video playback failed: "+e.message));
+    };
+    anchor.onTargetLost=()=>{
+      if(current!==runId)return;
+      visible=false;movie.pause();msg("Point at your printed picture");
+    };
+    await ar.start();
+    if(current!==runId){stopAR();return;}
+    msg(visible?"Photo recognized — video playing":"Aim at your printed image",visible);
+    renderer.setAnimationLoop(()=>renderer.render(scene,camera));
+  }catch(e){
+    if(current!==runId)return;
+    console.error("Local AR error",e);
+    stopAR();
+    if(!stream){
+      try{
+        stream=await navigator.mediaDevices.getUserMedia({
+          audio:false,video:{facingMode:{ideal:"environment"}}
+        });
+        preview.srcObject=stream;preview.classList.remove("hidden");
+        await preview.play().catch(()=>{});
+      }catch(previewError){console.warn("Camera fallback failed",previewError);}
+    }
+    fail(stream
+      ? "Camera works but AR tracking could not start: "+(e.message||String(e))
+      : "Camera not available: "+(e.message||String(e)));
+    if(!stream)panel.classList.remove("hidden");
+  }finally{
+    if(current===runId){loading=false;startButton.disabled=false;}
+  }
+}
+
+async function initialize(){
+  if(!id){
+    description.textContent="No draft selected. Please open a draft from the Creator Studio.";
+    return;
+  }
+  try{
+    draft=await readDraft(id);
+    if(!draft){
+      description.textContent="Draft not found on this device. Upload and save it in this browser first.";
+      return;
+    }
+    if(!Number.isFinite(draft.aspectRatio)||draft.aspectRatio<=0){
+      throw new Error("Invalid photo ratio; please recreate your draft.");
+    }
+    targetURL=URL.createObjectURL(draft.target);
+    videoURL=URL.createObjectURL(draft.video);
+    movie.src=videoURL;
+    movie.load();
+    description.textContent="Ready: "+draft.title+". Point your camera at the exact picture used to create this draft.";
+    startButton.disabled=false;
+  }catch(e){description.textContent=e.message||"Failed to load your draft.";}
+}
+startButton.addEventListener("click",start);
+el("stop").addEventListener("click",reset);
+sound.addEventListener("click",()=>{
+  movie.muted=!movie.muted;
+  sound.textContent=movie.muted?"Enable sound":"Mute";
+  if(visible&&movie.paused)movie.play().catch(()=>{});
+});
+addEventListener("pagehide",()=>{
+  reset();
+  if(targetURL)URL.revokeObjectURL(targetURL);
+  if(videoURL)URL.revokeObjectURL(videoURL);
+});
+initialize();
+</script>
+</body>
+</html>
