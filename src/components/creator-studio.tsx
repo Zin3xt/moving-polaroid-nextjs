@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { compilePhoto, imageAspectRatio } from "@/lib/browser-compiler";
 import { deleteDraft, downloadBlob, listDrafts, putDraft, type LocalDraft } from "@/lib/local-drafts";
 
@@ -20,16 +20,18 @@ function DraftCard({
   draft: LocalDraft;
   onDelete: (id: string) => void;
 }) {
-  const [photoURL, setPhotoURL] = useState("");
+  const imageRef = useRef<HTMLImageElement>(null);
   useEffect(() => {
+    const image = imageRef.current;
+    if (!image) return;
     const url = URL.createObjectURL(draft.photo);
-    setPhotoURL(url);
+    image.src = url;
     return () => URL.revokeObjectURL(url);
   }, [draft.photo]);
 
   return <article className="draftCard">
     {/* eslint-disable-next-line @next/next/no-img-element */}
-    {photoURL && <img src={photoURL} alt={draft.title} className="draftThumb" />}
+    <img ref={imageRef} alt={draft.title} className="draftThumb" />
     <div className="draftCardBody">
       <strong>{draft.title}</strong>
       <span className="hint">{formatDate(draft.createdAt)} · Saved on this device</span>
@@ -49,8 +51,8 @@ export function CreatorStudio() {
   const [photo, setPhoto] = useState<File | null>(null);
   const [video, setVideo] = useState<File | null>(null);
   const [existingTarget, setExistingTarget] = useState<File | null>(null);
-  const [photoURL, setPhotoURL] = useState("");
-  const [videoURL, setVideoURL] = useState("");
+  const photoPreviewRef = useRef<HTMLImageElement>(null);
+  const videoPreviewRef = useRef<HTMLVideoElement>(null);
   const [drafts, setDrafts] = useState<LocalDraft[]>([]);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<number | null>(null);
@@ -64,23 +66,23 @@ export function CreatorStudio() {
   }, []);
 
   useEffect(() => {
-    if (!photo) {
-      setPhotoURL("");
-      return;
-    }
+    const image = photoPreviewRef.current;
+    if (!photo || !image) return;
     const url = URL.createObjectURL(photo);
-    setPhotoURL(url);
+    image.src = url;
     return () => URL.revokeObjectURL(url);
   }, [photo]);
 
   useEffect(() => {
-    if (!video) {
-      setVideoURL("");
-      return;
-    }
+    const player = videoPreviewRef.current;
+    if (!video || !player) return;
     const url = URL.createObjectURL(video);
-    setVideoURL(url);
-    return () => URL.revokeObjectURL(url);
+    player.src = url;
+    player.load();
+    return () => {
+      player.pause();
+      URL.revokeObjectURL(url);
+    };
   }, [video]);
 
   async function createDraft(event: React.FormEvent<HTMLFormElement>) {
@@ -182,13 +184,13 @@ export function CreatorStudio() {
       <aside className="studioPanel">
         <h2>2. Review your media</h2>
         <div className="studioPreview">
-          {photoURL
+          {photo
             // eslint-disable-next-line @next/next/no-img-element
-            ? <div className="studioPolaroid"><img src={photoURL} alt="Selected Polaroid photo" /><p>{caption || title || "a moving memory ♡"}</p></div>
+            ? <div className="studioPolaroid"><img ref={photoPreviewRef} alt="Selected Polaroid photo" /><p>{caption || title || "a moving memory ♡"}</p></div>
             : <div className="studioEmpty"><span aria-hidden="true">▣</span><p>Select a photo to see a Polaroid preview.</p></div>}
         </div>
-        {videoURL
-          ? <video key={videoURL} src={videoURL} controls playsInline preload="metadata" className="studioVideo" />
+        {video
+          ? <video ref={videoPreviewRef} controls playsInline preload="metadata" className="studioVideo" />
           : <p className="hint">Your selected video preview will appear here.</p>}
         <p className="hint">Use a detailed, sharp image without the white border or QR code as the AR target. Print the same image without cropping or rotating it.</p>
       </aside>
