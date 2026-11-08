@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Moving Polaroid AR</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#191d21;color:white;font-family:system-ui,Arial,sans-serif}
+#viewport{position:absolute;inset:0;overflow:hidden}#viewport canvas,#viewport video{max-width:none}
+#panel{position:absolute;inset:0;display:flex;z-index:3;justify-content:center;align-items:center;flex-direction:column;text-align:center;padding:20px;background:linear-gradient(135deg,#21202cf2,#362a2ef2)}
+h1{font:500 clamp(28px,6vw,40px)/1.12 Georgia,serif;margin:8px 0 10px}
+p{max-width:360px;line-height:1.5;font-size:14px;color:#e1d5d0}
+button{border:0;border-radius:8px;padding:12px 18px;background:#f8eee5;color:#382c2c;font:600 14px system-ui;cursor:pointer}
+button:focus-visible,a:focus-visible{outline:3px solid #edd0bb;outline-offset:3px}
+button:disabled{opacity:.55}
+#status{position:absolute;top:14px;left:50%;transform:translateX(-50%);z-index:4;max-width:96%;padding:10px 16px;border-radius:30px;background:#28232bd9;text-align:center;font-size:12px}
+#controls{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);z-index:5;display:flex;gap:10px}
+#controls button{font-size:12px;white-space:nowrap;padding:10px}
+#error{position:absolute;bottom:64px;left:12px;right:12px;z-index:6;text-align:center;padding:12px;background:#812d36ed;border-radius:8px;font-size:12px}
+.hidden{display:none!important}#source{display:none}.sub{font-size:12px}.sub a{color:white}
+</style>
+<script type="importmap">
+{"imports":{
+  "three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+  "mindar-image-three":"https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js"
+}}
+</script>
+</head>
+<body>
+<div id="viewport"></div>
+<div id="panel"><div style="font-size:45px;color:#e3bba6">✦</div><h1>Make the photo move.</h1>
+<p>Tap below, allow camera access, then aim at the printed demo picture.</p>
+<button id="start" type="button">Start AR camera</button>
+<p class="sub">No camera? <a href="https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4" target="_blank" rel="noopener noreferrer">Watch the video</a></p>
+</div>
+<div id="status" class="hidden" role="status">Loading…</div>
+<div id="controls" class="hidden"><button id="sound" type="button">Enable sound</button><button id="stop" type="button">Stop camera</button></div>
+<div id="error" class="hidden" role="alert"></div>
+<video id="source" playsinline muted loop preload="auto" crossorigin="anonymous" src="https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4"></video>
+<script type="module">
+const viewport=document.getElementById("viewport");
+const panel=document.getElementById("panel");
+const startBtn=document.getElementById("start");
+const stopBtn=document.getElementById("stop");
+const soundBtn=document.getElementById("sound");
+const status=document.getElementById("status");
+const controls=document.getElementById("controls");
+const errorBox=document.getElementById("error");
+const video=document.getElementById("source");
+const targetUrl="https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.2.5/examples/image-tracking/assets/card-example/card.mind";
+let ar=null,texture=null,geometry=null,material=null,busy=false,seq=0;
+function message(text,found=false){status.textContent=text;status.classList.remove("hidden");status.style.background=found?"#205c4fdd":"#28232bdd";}
+function showError(text){errorBox.textContent=text;errorBox.classList.remove("hidden");}
+function stop(){
+ seq++;busy=false;video.pause();
+ if(ar){try{ar.renderer.setAnimationLoop(null);ar.stop();ar.renderer.dispose();}catch(e){console.warn(e)}ar=null;}
+ texture?.dispose();geometry?.dispose();material?.dispose();
+ texture=null;geometry=null;material=null;
+ viewport.innerHTML="";video.muted=true;soundBtn.textContent="Enable sound";
+ panel.classList.remove("hidden");startBtn.disabled=false;
+ status.classList.add("hidden");controls.classList.add("hidden");
+}
+startBtn.addEventListener("click",async()=>{
+ if(busy||ar)return;busy=true;const current=++seq;
+ errorBox.classList.add("hidden");startBtn.disabled=true;
+ message("Loading AR engine…");
+ try{
+  const [THREE,{MindARThree}]=await Promise.all([import("three"),import("mindar-image-three")]);
+  if(current!==seq)return;
+  ar=new MindARThree({container:viewport,imageTargetSrc:targetUrl,maxTrack:1});
+  const {renderer,scene,camera}=ar;
+  const anchor=ar.addAnchor(0);
+  video.muted=true;
+  texture=new THREE.VideoTexture(video);texture.colorSpace=THREE.SRGBColorSpace;
+  geometry=new THREE.PlaneGeometry(1,0.552);
+  material=new THREE.MeshBasicMaterial({map:texture,side:THREE.DoubleSide,toneMapped:false});
+  const plane=new THREE.Mesh(geometry,material);plane.position.z=0.01;anchor.group.add(plane);
+  anchor.onTargetFound=()=>{
+   if(current!==seq)return;
+   message("✦ Picture recognized · video playing",true);
+   video.play().catch(()=>showError("Video playback blocked. Try scanning again."));
+  };
+  anchor.onTargetLost=()=>{if(current!==seq)return;video.pause();message("Point at the printed photo");};
+  message("Starting camera…");
+  await ar.start();
+  if(current!==seq)return;
+  busy=false;panel.classList.add("hidden");
+  controls.classList.remove("hidden");message("Point at the printed photo");
+  renderer.setAnimationLoop(()=>renderer.render(scene,camera));
+ }catch(e){
+  console.error(e);
+  stop();
+  showError("Could not start camera. Use HTTPS, grant camera access, and check your internet connection.");
+ }
+});
+soundBtn.addEventListener("click",()=>{video.muted=!video.muted;soundBtn.textContent=video.muted?"Enable sound":"Mute";});
+stopBtn.addEventListener("click",stop);
+window.addEventListener("pagehide",stop);
+</script>
+</body>
+</html>
